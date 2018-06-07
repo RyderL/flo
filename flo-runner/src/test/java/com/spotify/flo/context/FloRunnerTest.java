@@ -51,6 +51,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -248,6 +249,7 @@ public class FloRunnerTest {
     runTask(FOO_TASK);
   }
 
+  @Ignore("does not make sense in subprocess?")
   @Test
   public void contextIsPropagated() throws Exception {
     final Context.Key<String> fooKey = Context.key("foo");
@@ -262,6 +264,7 @@ public class FloRunnerTest {
     assertThat(result.value(), is(fooValue));
   }
 
+  @Ignore("does not make sense in subprocess?")
   @Test
   public void taskIdIsInContext() throws Exception {
     final Task<TaskId> task = Task.named("task").ofType(TaskId.class)
