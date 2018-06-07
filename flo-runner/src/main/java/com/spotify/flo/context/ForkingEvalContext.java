@@ -3,7 +3,6 @@ package com.spotify.flo.context;
 import com.spotify.flo.EvalContext;
 import com.spotify.flo.Fn;
 import com.spotify.flo.freezer.PersistingContext;
-import com.spotify.flo.status.TaskStatusException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -55,6 +54,7 @@ public class ForkingEvalContext extends ForwardingEvalContext {
 
         final Path closureFile = tempdir.resolve("closure");
         final Path resultFile = tempdir.resolve("result");
+        final Path errorFile = tempdir.resolve("error");
 
         final String home = System.getProperty("java.home");
         final String classPath = System.getProperty("java.class.path");
@@ -72,7 +72,8 @@ public class ForkingEvalContext extends ForwardingEvalContext {
                 "-cp", classPath,
                 Trampoline.class.getName(),
                 closureFile.toString(),
-                resultFile.toString())
+                resultFile.toString(),
+                errorFile.toString())
             .directory(workdir.toFile());
 
         final Process process;
@@ -102,22 +103,32 @@ public class ForkingEvalContext extends ForwardingEvalContext {
         }
 
         if (process.exitValue() != 0) {
-          throw new AssertionError("Subprocess failed: " + process.exitValue());
+          throw new RuntimeException("Subprocess failed: " + process.exitValue());
         }
 
-        final T result;
-        try {
-          result = PersistingContext.deserialize(resultFile);
-        } catch (Exception e) {
-          throw new RuntimeException("Failed to deserialize result", e);
+        if (Files.exists(errorFile)) {
+          // Failed
+          final Throwable error;
+          try {
+            error = PersistingContext.deserialize(errorFile);
+          } catch (Exception e) {
+            throw new RuntimeException("Failed to deserialize error", e);
+          }
+          if (error instanceof RuntimeException) {
+            throw (RuntimeException) error;
+          } else {
+            throw new RuntimeException(error);
+          }
+        } else {
+          // Success
+          final T result;
+          try {
+            result = PersistingContext.deserialize(resultFile);
+          } catch (Exception e) {
+            throw new RuntimeException("Failed to deserialize result", e);
+          }
+          return result;
         }
-
-        if (result instanceof TaskStatusException) {
-          throw (TaskStatusException) result;
-        }
-
-        return result;
-
       } finally {
         executor.shutdownNow();
         tryDeleteDir(tempdir);
@@ -165,6 +176,7 @@ public class ForkingEvalContext extends ForwardingEvalContext {
     }
   }
 
+  @SuppressWarnings("finally")
   private static class Trampoline {
 
     private static final boolean DEBUG = Boolean.parseBoolean(System.getenv("FLO_DEBUG_FORKING"));
@@ -207,44 +219,69 @@ public class ForkingEvalContext extends ForwardingEvalContext {
 
       final Path closureFile = Paths.get(args[0]);
       final Path resultFile = Paths.get(args[1]);
+      final Path errorFile = Paths.get(args[2]);
 
       err("deserializing closure");
       final Fn<?> fn;
       try {
         fn = PersistingContext.deserialize(closureFile);
       } catch (Exception e) {
-        e.printStackTrace();
-        System.err.flush();
-        System.exit(1);
+        try {
+          e.printStackTrace();
+          System.err.flush();
+        } finally {
+          System.exit(1);
+        }
         return;
       }
 
       err("executing closure");
-      Object result;
+      Object result = null;
+      Throwable error = null;
       try {
         result = fn.get();
-      } catch (TaskStatusException e) {
-        result = e;
       } catch (Exception e) {
-        e.printStackTrace();
-        System.err.flush();
-        System.exit(2);
-        return;
+        error = e;
       }
 
-      err("serializing result");
+      if (error != null) {
+        err("serializing error");
+        try {
+          PersistingContext.serialize(error, errorFile);
+        } catch (Exception e) {
+          try {
+            err("failed to serialize error");
+            error.printStackTrace();
+            err("===============");
+            e.printStackTrace();
+            err("===============");
+            System.err.flush();
+          } finally {
+            System.exit(2);
+          }
+          return;
+        }
+      } else {
+        err("serializing result");
+        try {
+          PersistingContext.serialize(result, resultFile);
+        } catch (Exception e) {
+          try {
+            err("failed to serialize result");
+            e.printStackTrace();
+            System.err.flush();
+          } finally {
+            System.exit(3);
+          }
+          return;
+        }
+      }
+
       try {
-        PersistingContext.serialize(result, resultFile);
-      } catch (Exception e) {
-        e.printStackTrace();
         System.err.flush();
-        System.exit(3);
-        return;
+      } finally {
+        System.exit(0);
       }
-
-      System.err.flush();
-
-      System.exit(0);
     }
 
     private static void err(String message) {

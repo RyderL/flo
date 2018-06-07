@@ -21,7 +21,9 @@
 package com.spotify.flo.context;
 
 import static com.spotify.flo.context.FloRunner.runTask;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.junit.Assert.assertThat;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.eq;
@@ -36,15 +38,22 @@ import com.spotify.flo.TaskId;
 import com.spotify.flo.Tracing;
 import com.spotify.flo.context.FloRunner.Result;
 import com.spotify.flo.freezer.Persisted;
+import com.spotify.flo.freezer.PersistingContext;
 import com.spotify.flo.status.NotReady;
 import io.grpc.Context;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 public class FloRunnerTest {
 
@@ -53,6 +62,8 @@ public class FloRunnerTest {
 
   private TerminationHook validTerminationHook;
   private TerminationHook exceptionalTerminationHook;
+
+  @Rule public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
   @Before
   public void setUp() {
@@ -88,13 +99,18 @@ public class FloRunnerTest {
   }
 
   @Test
-  public void blockingRunnerBlocks() {
-    final AtomicBoolean hasHappened = new AtomicBoolean();
+  public void blockingRunnerBlocks() throws IOException {
+    final Path file = temporaryFolder.newFile().toPath();
+
     final Task<Void> task = Task.named("task").ofType(Void.class)
         .process(() -> {
           try {
             Thread.sleep(10);
-            hasHappened.set(true);
+            try {
+              Files.write(file, "hello".getBytes(UTF_8));
+            } catch (IOException e) {
+              throw new RuntimeException(e);
+            }
           } catch (InterruptedException e) {
             throw new RuntimeException(e);
           }
@@ -103,7 +119,7 @@ public class FloRunnerTest {
 
     runTask(task).waitAndExit(status -> { });
 
-    assertThat(hasHappened.get(), is(true));
+    assertThat(new String(Files.readAllBytes(file), UTF_8), is("hello"));
   }
 
   @Test
@@ -114,12 +130,17 @@ public class FloRunnerTest {
   }
 
   @Test
-  public void exceptionsArePassed() throws Exception {
-    final RuntimeException expectedException = new RuntimeException("foo");
+  public void testSerializeException() throws Exception {
+    final File file = temporaryFolder.newFile();
+    file.delete();
+    PersistingContext.serialize(new RuntimeException("foo"), file.toPath());
+  }
 
+  @Test
+  public void exceptionsArePassed() throws Exception {
     final Task<String> task = Task.named("foo").ofType(String.class)
         .process(() -> {
-          throw expectedException;
+          throw new RuntimeException("foo");
         });
 
     Throwable exception = null;
@@ -128,7 +149,8 @@ public class FloRunnerTest {
     } catch (ExecutionException e) {
       exception = e.getCause();
     }
-    assertThat(exception, is(expectedException));
+    assertThat(exception, is(instanceOf(RuntimeException.class)));
+    assertThat(exception.getMessage(), is("foo"));
   }
 
   @Test
