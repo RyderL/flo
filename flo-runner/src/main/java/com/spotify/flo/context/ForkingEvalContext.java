@@ -104,19 +104,32 @@ public class ForkingEvalContext extends ForwardingEvalContext {
         }
 
         // TODO: Log output
+
+        // Plan A
+        // ======
         // 1. Set up logging in the child process to emit structured json (with severity and timestamps etc) to a file
         // 2. Make the parent tail the log file, parse the json messages, decorate with task metadata and re-emit the
         //    log messages. Note that re-emitting the log messages through the parent process slf4j logger would involve
         //    figuring out how to keep the original log message metadata (e.g. timestamp, logger, thread, etc). Maybe
         //    using the LocationAwareLogger interface. Printing the log messages directly to stderr might be more
-        //    straightforward.
+        //    straightforward. flo does not pull in a logging implementation, we'd have to pull one in (e.g. logback)
+        //    and set it up to do structured logging in the child process. Alternatively roll our own.
         // 3. Also tail child process std{out,err} for unstructured output and log each line using the parent process
         //    logger, taking care to not choke on huge lines and non-text output.
+
+        // Plan B
+        // ======
+        // Outsource the problem completely to the logger implementation provided by the user:
+        // 1. No special setup for the child process, it just logs to std{out,err} as configured by user.
+        // 2. Parent process tails process std{out,err} and re-logs each line using the slf4j logger. Any structured
+        //    log messages now end up wrapped in the message field of the log message.
+        // 3. The parent process logger inspects all log messages and bypasses normal processing for any (wrapped)
+        //    structured log messages, just decorating it with task metadata and emitting it as is.
+
         // Note:
         // * Child process does not need grpc context
         // * Tempted at this point to run the child task in a container and let GKE deal with the logs
-        // * flo does not pull in a logging implementation, we'd have to pull one in (e.g. logback) and set it up to do
-        //   structured logging in the child process. Alternatively roll our own.
+        
         executor.submit(() -> copy(process.getInputStream(), System.out));
         executor.submit(() -> copy(process.getErrorStream(), System.err));
 
