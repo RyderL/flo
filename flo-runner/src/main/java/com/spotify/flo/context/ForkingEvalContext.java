@@ -103,8 +103,18 @@ public class ForkingEvalContext extends ForwardingEvalContext {
           throw new RuntimeException(e);
         }
 
-        // TODO: log output
-        // TODO: propagate grpc context
+        // TODO: Log output
+        // 1. Set up logging in the child process to emit structured json (with severity and timestamps etc) to a file
+        // 2. Make the parent tail the log file, parse the json messages, decorate with task metadata and re-emit the
+        //    log messages. Note that re-emitting the log messages through the parent process slf4j logger would involve
+        //    figuring out how to keep the original log message metadata (e.g. timestamp, logger, thread, etc). Maybe
+        //    using the LocationAwareLogger interface. Printing the log messages directly to stderr might be more
+        //    straightforward.
+        // 3. Also tail child process std{out,err} for unstructured output and log each line using the parent process
+        //    logger, taking care to not choke on huge lines and non-text output.
+        // Note:
+        // * Child process does not need grpc context
+        // * Tempted at this point to run the child task in a container and let GKE deal with the logs
         executor.submit(() -> copy(process.getInputStream(), System.out));
         executor.submit(() -> copy(process.getErrorStream(), System.err));
 
