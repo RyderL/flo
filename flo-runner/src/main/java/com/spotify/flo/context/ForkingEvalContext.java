@@ -115,6 +115,8 @@ public class ForkingEvalContext extends ForwardingEvalContext {
         // Note:
         // * Child process does not need grpc context
         // * Tempted at this point to run the child task in a container and let GKE deal with the logs
+        // * flo does not pull in a logging implementation, we'd have to pull one in (e.g. logback) and set it up to do
+        //   structured logging in the child process. Alternatively roll our own.
         executor.submit(() -> copy(process.getInputStream(), System.out));
         executor.submit(() -> copy(process.getErrorStream(), System.err));
 
