@@ -45,29 +45,28 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ForkingEvalContext extends ForwardingEvalContext {
+class ForkingEvalContext extends ForwardingEvalContext {
+
+  private static final Logger log = LoggerFactory.getLogger(ForwardingEvalContext.class);
 
   // Is the Java Debug Wire Protocol activated?
   private static boolean IN_DEBUGGER = ManagementFactory.getRuntimeMXBean().
       getInputArguments().toString().contains("jdwp");
 
-  private static boolean FORK_IN_DEBUGGER = Boolean.parseBoolean(System.getenv("FLO_FORK_IN_DEBUGGER"));
+  private static boolean FORCE_FORK = Boolean.parseBoolean(System.getenv("FLO_FORCE_FORK"));
 
-  private static boolean FORK = !IN_DEBUGGER || FORK_IN_DEBUGGER;
-
-  private static final Logger log = LoggerFactory.getLogger(ForwardingEvalContext.class);
-
-  public ForkingEvalContext(EvalContext delegate) {
+  private ForkingEvalContext(EvalContext delegate) {
     super(delegate);
   }
 
-  public static EvalContext composeWith(EvalContext baseContext) {
+  static EvalContext composeWith(EvalContext baseContext) {
     return new ForkingEvalContext(baseContext);
   }
 
   @Override
   public <T> Value<T> value(Fn<T> value) {
-    if (!FORK) {
+    if (IN_DEBUGGER && !FORCE_FORK) {
+      log.debug("In debugger, not forking");
       return super.value(value);
     } else {
       return super.value(fork(value));
