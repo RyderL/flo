@@ -55,6 +55,8 @@ class ForkingEvalContext extends ForwardingEvalContext {
   private static boolean IN_DEBUGGER = ManagementFactory.getRuntimeMXBean().
       getInputArguments().stream().anyMatch(s -> s.contains("-agentlib:jdwp"));
 
+  private static boolean FLO_DISABLE_FORKING = Boolean.parseBoolean(System.getenv("FLO_DISABLE_FORKING"));
+
   private static boolean FORCE_FORK = Boolean.parseBoolean(System.getenv("FLO_FORCE_FORK"));
 
   private ForkingEvalContext(EvalContext delegate) {
@@ -67,7 +69,10 @@ class ForkingEvalContext extends ForwardingEvalContext {
 
   @Override
   public <T> Value<T> value(Fn<T> value) {
-    if (IN_DEBUGGER && !FORCE_FORK) {
+    if (FLO_DISABLE_FORKING && !FORCE_FORK) {
+      log.debug("Forking disabled");
+      return super.value(value);
+    } else if (IN_DEBUGGER && !FORCE_FORK) {
       log.debug("In debugger, not forking");
       return super.value(value);
     } else {
