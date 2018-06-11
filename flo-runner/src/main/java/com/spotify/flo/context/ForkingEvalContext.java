@@ -47,6 +47,14 @@ import org.slf4j.LoggerFactory;
 
 public class ForkingEvalContext extends ForwardingEvalContext {
 
+  // Is the Java Debug Wire Protocol activated?
+  private static boolean IN_DEBUGGER = ManagementFactory.getRuntimeMXBean().
+      getInputArguments().toString().contains("jdwp");
+
+  private static boolean FORK_IN_DEBUGGER = Boolean.parseBoolean(System.getenv("FLO_FORK_IN_DEBUGGER"));
+
+  private static boolean FORK = !IN_DEBUGGER || FORK_IN_DEBUGGER;
+
   private static final Logger log = LoggerFactory.getLogger(ForwardingEvalContext.class);
 
   public ForkingEvalContext(EvalContext delegate) {
@@ -59,7 +67,11 @@ public class ForkingEvalContext extends ForwardingEvalContext {
 
   @Override
   public <T> Value<T> value(Fn<T> value) {
-    return super.value(fork(value));
+    if (!FORK) {
+      return super.value(value);
+    } else {
+      return super.value(fork(value));
+    }
   }
 
   private <T> Fn<T> fork(Fn<T> value) {
