@@ -46,6 +46,10 @@ import org.slf4j.LoggerFactory;
 
 /**
  * An {@link EvalContext} that runs tasks in sub-processes.
+ * <p>
+ * Forking can be disabled using the environment variable {@code FLO_DISABLE_FORKING=true}.
+ * <p>
+ * Forking is disabled by default when running in the debugger, but can be enabled by {@code FLO_FORCE_FORK=true}.
  */
 class ForkingEvalContext extends ForwardingEvalContext {
 
