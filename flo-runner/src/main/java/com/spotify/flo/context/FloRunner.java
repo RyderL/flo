@@ -151,7 +151,8 @@ public final class FloRunner<T> {
   }
 
   private EvalContext createContext() {
-    final EvalContext instrumentedContext = instrument(createRootContext());
+    final EvalContext instrumentedContext = instrument(
+        ForkingEvalContext.composeWith(createRootContext()));
     final EvalContext baseContext = isMode("persist")
         ? persist(instrumentedContext)
         : instrumentedContext;
@@ -178,7 +179,7 @@ public final class FloRunner<T> {
           config.getInt("flo.workers"),
           threadFactory);
       closeables.add(executorCloser(executor));
-      return ForkingEvalContext.composeWith(EvalContext.async(executor));
+      return EvalContext.async(executor);
     } else {
       return EvalContext.sync();
     }
