@@ -157,12 +157,12 @@ public class ForkingEvalContext extends ForwardingEvalContext {
           // TODO: configurable timeout
           exited = process.waitFor(1, TimeUnit.DAYS);
         } catch (InterruptedException e) {
-          process.destroyForcibly();
           Thread.currentThread().interrupt();
           throw new RuntimeException(e);
+        } finally {
+          process.destroyForcibly();
         }
         if (!exited) {
-          process.destroyForcibly();
           throw new RuntimeException("Subprocess timed out");
         }
 
