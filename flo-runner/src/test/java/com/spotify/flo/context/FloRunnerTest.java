@@ -126,7 +126,7 @@ public class FloRunnerTest {
 
   @Test
   public void valueIsPassedInFuture() throws Exception {
-    final String result = runTask(FOO_TASK).future().get(1, TimeUnit.SECONDS);
+    final String result = runTask(FOO_TASK).future().get(30, TimeUnit.SECONDS);
 
     assertThat(result, is("foo"));
   }
