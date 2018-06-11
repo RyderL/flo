@@ -117,10 +117,14 @@ class ForkingEvalContext extends ForwardingEvalContext {
         final ProcessBuilder processBuilder = new ProcessBuilder(java.toString(), "-cp", classPath)
             .directory(workdir.toFile());
 
-        // Propagate -Xmx
+        // Propagate -Xmx.
+        // Note: This is suboptimal because if the user has configured a max heap size we will effectively use that
+        // times the concurrent nummber of executing task processes in addition to the heap of the parent process.
+        // However, propagating a lower limit might make the task fail if the user has supplied a heap size that is
+        // tailored to the memory requirements of the task.
         ManagementFactory.getRuntimeMXBean().getInputArguments().stream()
-            .filter(s -> s.startsWith("-Xmx")).reduce((a, b) -> b)
-            .ifPresent(processBuilder.command()::add);
+            .filter(s -> s.startsWith("-Xmx"))
+            .forEach(processBuilder.command()::add);
 
         // Trampoline arguments
         processBuilder.command().add(Trampoline.class.getName());
