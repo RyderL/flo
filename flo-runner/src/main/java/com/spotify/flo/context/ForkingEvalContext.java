@@ -54,7 +54,7 @@ class ForkingEvalContext extends ForwardingEvalContext {
 
   // Is the Java Debug Wire Protocol activated?
   private static boolean IN_DEBUGGER = ManagementFactory.getRuntimeMXBean().
-      getInputArguments().toString().contains("jdwp");
+      getInputArguments().stream().anyMatch(s -> s.contains("-agentlib:jdwp"));
 
   private static boolean FORCE_FORK = Boolean.parseBoolean(System.getenv("FLO_FORCE_FORK"));
 
