@@ -41,7 +41,6 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalTime;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -132,21 +131,19 @@ class ForkingEvalContext extends ForwardingEvalContext {
         executor.submit(() -> copyLines(process.getInputStream(), System.out));
         executor.submit(() -> copyLines(process.getErrorStream(), System.err));
 
-        final boolean exited;
+        log.debug("Waiting for subprocess exit");
+        final int exitValue;
         try {
-          // TODO: configurable timeout
-          exited = process.waitFor(1, TimeUnit.DAYS);
+          exitValue = process.waitFor();
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
           throw new RuntimeException(e);
         } finally {
           process.destroyForcibly();
         }
-        if (!exited) {
-          throw new RuntimeException("Subprocess timed out");
-        }
 
-        if (process.exitValue() != 0) {
+        log.debug("Subprocess exited: " + exitValue);
+        if (exitValue != 0) {
           throw new RuntimeException("Subprocess failed: " + process.exitValue());
         }
 
