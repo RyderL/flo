@@ -45,6 +45,9 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * An {@link EvalContext} that runs tasks in sub-processes.
+ */
 class ForkingEvalContext extends ForwardingEvalContext {
 
   private static final Logger log = LoggerFactory.getLogger(ForwardingEvalContext.class);
@@ -112,11 +115,10 @@ class ForkingEvalContext extends ForwardingEvalContext {
                 errorFile.toString())
             .directory(workdir.toFile());
 
+        // Propagate TASK_ID to child process
         final TaskId taskId = Tracing.TASK_ID.get();
         if (taskId != null) {
           processBuilder.environment().put("FLO_TASK_ID", taskId.toString());
-          processBuilder.environment().put("FLO_TASK_NAME", taskId.name());
-          processBuilder.environment().put("FLO_TASK_ARGS", taskId.args());
         }
 
         final Process process;
@@ -126,41 +128,7 @@ class ForkingEvalContext extends ForwardingEvalContext {
           throw new RuntimeException(e);
         }
 
-        // TODO: Log output
-
-        // Plan A
-        // ======
-        // 1. Set up logging in the child process to emit structured json (with severity and timestamps etc) to a file
-        // 2. Make the parent tail the log file, parse the json messages, decorate with task metadata and re-emit the
-        //    log messages. Note that re-emitting the log messages through the parent process slf4j logger would involve
-        //    figuring out how to keep the original log message metadata (e.g. timestamp, logger, thread, etc). Maybe
-        //    using the LocationAwareLogger interface. Printing the log messages directly to stderr might be more
-        //    straightforward. flo does not pull in a logging implementation, we'd have to pull one in (e.g. logback)
-        //    and set it up to do structured logging in the child process. Alternatively roll our own.
-        // 3. Also tail child process std{out,err} for unstructured output and log each line using the parent process
-        //    logger, taking care to not choke on huge lines and non-text output.
-
-        // Plan B
-        // ======
-        // Outsource the problem completely to the logger implementation provided by the user:
-        // 1. No special setup for the child process, it just logs to std{out,err} as configured by user.
-        // 2. Parent process tails process std{out,err} and re-logs each line using the slf4j logger. Any structured
-        //    log messages now end up wrapped in the message field of the log message.
-        // 3. The parent process logger inspects all log messages and bypasses normal processing for any (wrapped)
-        //    structured log messages, just decorating it with task metadata and emitting it as is.
-
-        // Plan C - Implemented
-        // ======
-        // Keep it simple.
-        // 1. Add FLO_TASK_ID to child process environment.
-        // 2. Rely on user provided logger to pick up FLO_TASK_ID.
-        // 3. Parent process just copies std{err,out} line by line. The reason for manual line-by-line copying instead
-        //    of using Redirect.INHERIT is to ensure that line contents are not interleaved.
-
-        // Note:
-        // * Child process does not need grpc context
-        // * Tempted at this point to run the child task in a container and let GKE deal with the logs
-        
+        // Copy std{err,out} line by line to avoid interleaving and corrupting line contents.
         executor.submit(() -> copyLines(process.getInputStream(), System.out));
         executor.submit(() -> copyLines(process.getErrorStream(), System.err));
 
