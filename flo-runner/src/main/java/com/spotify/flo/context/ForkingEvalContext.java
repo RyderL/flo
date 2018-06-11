@@ -25,6 +25,7 @@ import com.spotify.flo.Fn;
 import com.spotify.flo.TaskId;
 import com.spotify.flo.Tracing;
 import com.spotify.flo.freezer.PersistingContext;
+import io.grpc.Context;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -277,10 +278,34 @@ public class ForkingEvalContext extends ForwardingEvalContext {
       Watchdog watchdog = new Watchdog();
       watchdog.start();
 
+      final TaskId taskId;
+      try {
+        taskId = TaskId.parse(System.getenv("FLO_TASK_ID"));
+      } catch (IllegalArgumentException e) {
+        try {
+          e.printStackTrace();
+          System.err.flush();
+        } finally {
+          System.exit(1);
+        }
+        return;
+      }
+      err("read FLO_TASK_ID = " + taskId);
+
+      if (args.length != 3) {
+        err("args.length != 3");
+        System.exit(1);
+        return;
+      }
       final Path closureFile = Paths.get(args[0]);
       final Path resultFile = Paths.get(args[1]);
       final Path errorFile = Paths.get(args[2]);
 
+      Context.current().withValue(Tracing.TASK_ID, taskId).run(() ->
+          run(closureFile, resultFile, errorFile));
+    }
+
+    private static void run(Path closureFile, Path resultFile, Path errorFile) {
       err("deserializing closure");
       final Fn<?> fn;
       try {

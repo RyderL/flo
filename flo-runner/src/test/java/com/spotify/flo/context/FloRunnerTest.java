@@ -264,11 +264,12 @@ public class FloRunnerTest {
     assertThat(result.value(), is(fooValue));
   }
 
-  @Ignore("does not make sense in subprocess?")
   @Test
   public void taskIdIsInContext() throws Exception {
     final Task<TaskId> task = Task.named("task").ofType(TaskId.class)
-        .process(Tracing.TASK_ID::get);
+        .process(() -> {
+          return Tracing.TASK_ID.get();
+        });
 
     final Result<TaskId> result = runTask(task);
 
