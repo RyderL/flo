@@ -43,6 +43,7 @@ import com.spotify.flo.status.NotReady;
 import io.grpc.Context;
 import java.io.File;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
@@ -268,6 +269,7 @@ public class FloRunnerTest {
   public void taskIdIsInContext() throws Exception {
     final Task<TaskId> task = Task.named("task").ofType(TaskId.class)
         .process(() -> {
+          System.err.println(ManagementFactory.getRuntimeMXBean().getInputArguments());
           return Tracing.TASK_ID.get();
         });
 

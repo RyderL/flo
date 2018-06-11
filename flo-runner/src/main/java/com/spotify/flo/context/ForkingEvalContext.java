@@ -98,21 +98,26 @@ class ForkingEvalContext extends ForwardingEvalContext {
         final String classPath = System.getProperty("java.class.path");
         final Path java = Paths.get(home, "bin", "java").toAbsolutePath().normalize();
 
+        log.debug("serializing closure");
         try {
           PersistingContext.serialize(value, closureFile);
         } catch (Exception e) {
           throw new RuntimeException("Failed to serialize closure", e);
         }
 
-        final ProcessBuilder processBuilder = new ProcessBuilder()
-            .command(
-                java.toString(),
-                "-cp", classPath,
-                Trampoline.class.getName(),
-                closureFile.toString(),
-                resultFile.toString(),
-                errorFile.toString())
+        final ProcessBuilder processBuilder = new ProcessBuilder(java.toString(), "-cp", classPath)
             .directory(workdir.toFile());
+
+        // Propagate -Xmx
+        ManagementFactory.getRuntimeMXBean().getInputArguments().stream()
+            .filter(s -> s.startsWith("-Xmx")).reduce((a, b) -> b)
+            .ifPresent(processBuilder.command()::add);
+
+        // Trampoline arguments
+        processBuilder.command().add(Trampoline.class.getName());
+        processBuilder.command().add(closureFile.toString());
+        processBuilder.command().add(resultFile.toString());
+        processBuilder.command().add(errorFile.toString());
 
         // Propagate TASK_ID to child process
         final TaskId taskId = Tracing.TASK_ID.get();
@@ -120,6 +125,8 @@ class ForkingEvalContext extends ForwardingEvalContext {
           processBuilder.environment().put("FLO_TASK_ID", taskId.toString());
         }
 
+        log.debug("Starting subprocess: environment={}, command={}, directory={}",
+            processBuilder.environment(), processBuilder.command(), processBuilder.directory());
         final Process process;
         try {
           process = processBuilder.start();
@@ -149,6 +156,7 @@ class ForkingEvalContext extends ForwardingEvalContext {
 
         if (Files.exists(errorFile)) {
           // Failed
+          log.debug("subprocess exited with error file");
           final Throwable error;
           try {
             error = PersistingContext.deserialize(errorFile);
@@ -162,6 +170,7 @@ class ForkingEvalContext extends ForwardingEvalContext {
           }
         } else {
           // Success
+          log.debug("subprocess exited with result file");
           final T result;
           try {
             result = PersistingContext.deserialize(resultFile);
