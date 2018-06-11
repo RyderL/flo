@@ -87,11 +87,7 @@ public class Logging {
     } else if (throwable instanceof Persisted) {
       // ignore
     } else {
-      try {
-        LOG.warn("Exception", throwable);
-      } catch (Exception e) {
-        LOG.warn("Caught exception when logging exception: {}", throwable.getClass(), e);
-      }
+      LOG.warn("Exception", throwable);
     }
   }
 
