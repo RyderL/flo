@@ -22,10 +22,14 @@ package com.spotify.flo.context;
 
 import com.spotify.flo.EvalContext;
 import com.spotify.flo.Fn;
+import com.spotify.flo.TaskId;
+import com.spotify.flo.Tracing;
 import com.spotify.flo.freezer.PersistingContext;
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.InputStreamReader;
+import java.io.PrintStream;
 import java.lang.management.ManagementFactory;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -96,6 +100,13 @@ public class ForkingEvalContext extends ForwardingEvalContext {
                 errorFile.toString())
             .directory(workdir.toFile());
 
+        final TaskId taskId = Tracing.TASK_ID.get();
+        if (taskId != null) {
+          processBuilder.environment().put("FLO_TASK_ID", taskId.toString());
+          processBuilder.environment().put("FLO_TASK_NAME", taskId.name());
+          processBuilder.environment().put("FLO_TASK_ARGS", taskId.args());
+        }
+
         final Process process;
         try {
           process = processBuilder.start();
@@ -126,12 +137,20 @@ public class ForkingEvalContext extends ForwardingEvalContext {
         // 3. The parent process logger inspects all log messages and bypasses normal processing for any (wrapped)
         //    structured log messages, just decorating it with task metadata and emitting it as is.
 
+        // Plan C - Implemented
+        // ======
+        // Keep it simple.
+        // 1. Add FLO_TASK_ID to child process environment.
+        // 2. Rely on user provided logger to pick up FLO_TASK_ID.
+        // 3. Parent process just copies std{err,out} line by line. The reason for manual line-by-line copying instead
+        //    of using Redirect.INHERIT is to ensure that line contents are not interleaved.
+
         // Note:
         // * Child process does not need grpc context
         // * Tempted at this point to run the child task in a container and let GKE deal with the logs
         
-        executor.submit(() -> copy(process.getInputStream(), System.out));
-        executor.submit(() -> copy(process.getErrorStream(), System.err));
+        executor.submit(() -> copyLines(process.getInputStream(), System.out));
+        executor.submit(() -> copyLines(process.getErrorStream(), System.err));
 
         final boolean exited;
         try {
@@ -175,7 +194,7 @@ public class ForkingEvalContext extends ForwardingEvalContext {
           return result;
         }
       } finally {
-        executor.shutdownNow();
+        executor.shutdown();
         tryDeleteDir(tempdir);
       }
     };
@@ -205,19 +224,15 @@ public class ForkingEvalContext extends ForwardingEvalContext {
     });
   }
 
-  private void copy(InputStream in, OutputStream out) {
-    byte[] buffer = new byte[1024];
+  private void copyLines(InputStream in, PrintStream out) {
+    final BufferedReader reader = new BufferedReader(new InputStreamReader(in));
     try {
-      while (true) {
-        int r = in.read(buffer);
-        if (r < 0) {
-          break;
-        }
-        out.write(buffer, 0, r);
-        out.flush();
+      String line;
+      while ((line = reader.readLine()) != null) {
+        out.println(line);
       }
     } catch (IOException e) {
-      log.error("Caught exception during byte stream copy", e);
+      log.error("Caught exception during stream copy", e);
     }
   }
 
