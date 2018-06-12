@@ -60,6 +60,7 @@ class ForkingContext implements EvalContext {
 
   private static final Logger log = LoggerFactory.getLogger(ForwardingEvalContext.class);
 
+  // This is marked transient so as to avoid serializing the whole stack of EvalContexts
   private transient final EvalContext delegate;
 
   private ForkingContext(EvalContext delegate) {
