@@ -35,11 +35,12 @@ import java.io.PrintStream;
 import java.lang.management.ManagementFactory;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.time.LocalTime;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -280,12 +281,7 @@ class ForkingContext implements EvalContext {
   @SuppressWarnings("finally")
   private static class Trampoline {
 
-    private static final boolean DEBUG = Boolean.parseBoolean(System.getenv("FLO_DEBUG_FORKING"));
-
-    private static final String NAME = ManagementFactory.getRuntimeMXBean().getName();
-
-    private static class Watchdog
-        extends Thread {
+    private static class Watchdog extends Thread {
 
       Watchdog() {
         setDaemon(false);
@@ -302,65 +298,63 @@ class ForkingContext implements EvalContext {
             }
           }
         } catch (IOException e) {
-          errPrefix();
-          e.printStackTrace(System.err);
-          System.err.flush();
+          log.error("watchdog failed", e);
         }
-        System.err.println();
-        err("child process exiting");
+        log.debug("child process exiting");
         // Exit with non-zero status code to skip shutdown hooks
         System.exit(-1);
       }
     }
 
     public static void main(String... args) {
-      err("child process started");
-      Watchdog watchdog = new Watchdog();
+      log.debug("child process started: args={}", Arrays.asList(args));
+      final Watchdog watchdog = new Watchdog();
       watchdog.start();
 
       final TaskId taskId;
       try {
         taskId = TaskId.parse(System.getenv("FLO_TASK_ID"));
       } catch (IllegalArgumentException e) {
-        try {
-          e.printStackTrace();
-          System.err.flush();
-        } finally {
-          System.exit(1);
-        }
+        log.error("Failed to read FLO_TASK_ID", e);
+        System.exit(2);
         return;
       }
-      err("read FLO_TASK_ID = " + taskId);
+      log.debug("read FLO_TASK_ID = {}", taskId);
 
       if (args.length != 3) {
-        err("args.length != 3");
-        System.exit(1);
+        log.error("args.length != 3");
+        System.exit(3);
         return;
       }
-      final Path closureFile = Paths.get(args[0]);
-      final Path resultFile = Paths.get(args[1]);
-      final Path errorFile = Paths.get(args[2]);
+      final Path closureFile;
+      final Path resultFile;
+      final Path errorFile;
+      try {
+        closureFile = Paths.get(args[0]);
+        resultFile = Paths.get(args[1]);
+        errorFile = Paths.get(args[2]);
+      } catch (InvalidPathException e) {
+        log.error("Failed to get file path", e);
+        System.exit(4);
+        return;
+      }
 
       Context.current().withValue(Tracing.TASK_ID, taskId).run(() ->
           run(closureFile, resultFile, errorFile));
     }
 
     private static void run(Path closureFile, Path resultFile, Path errorFile) {
-      err("deserializing closure");
+      log.debug("deserializing closure: {}", closureFile);
       final Fn<Value<?>> fn;
       try {
         fn = PersistingContext.deserialize(closureFile);
       } catch (Exception e) {
-        try {
-          e.printStackTrace();
-          System.err.flush();
-        } finally {
-          System.exit(1);
-        }
+        log.error("Failed to deserialize closure: {}", closureFile, e);
+        System.exit(5);
         return;
       }
 
-      err("executing closure");
+      log.debug("executing closure");
       Value<?> value = null;
       Throwable error = null;
       try {
@@ -369,7 +363,7 @@ class ForkingContext implements EvalContext {
         error = e;
       }
 
-      err("getting result");
+      log.debug("getting result");
       Object result = null;
       if (value != null) {
         CompletableFuture<Object> f = new CompletableFuture<>();
@@ -385,56 +379,27 @@ class ForkingContext implements EvalContext {
       }
 
       if (error != null) {
-        err("serializing error");
-        error.printStackTrace();
+        log.debug("serializing error", error);
         try {
           PersistingContext.serialize(error, errorFile);
         } catch (Exception e) {
-          try {
-            err("failed to serialize error");
-            error.printStackTrace();
-            err("===============");
-            e.printStackTrace();
-            err("===============");
-            System.err.flush();
-          } finally {
-            System.exit(2);
-          }
+          log.error("failed to serialize error", e);
+          System.exit(6);
           return;
         }
       } else {
-        err("serializing result");
+        log.debug("serializing result: {}", result);
         try {
           PersistingContext.serialize(result, resultFile);
         } catch (Exception e) {
-          try {
-            err("failed to serialize result");
-            e.printStackTrace();
-            System.err.flush();
-          } finally {
-            System.exit(3);
-          }
+          log.error("failed to serialize result", e);
+          System.exit(7);
           return;
         }
       }
 
-      try {
-        System.err.flush();
-      } finally {
-        System.exit(0);
-      }
-    }
-
-    private static void err(String message) {
-      if (DEBUG) {
-        errPrefix();
-        System.err.println(message);
-        System.err.flush();
-      }
-    }
-
-    private static void errPrefix() {
-      System.err.print(LocalTime.now() + " [" + NAME + "] " + ForkingContext.class.getName() + ": ");
+      System.err.flush();
+      System.exit(0);
     }
   }
 }
