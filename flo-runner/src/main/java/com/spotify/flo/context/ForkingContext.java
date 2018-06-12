@@ -55,6 +55,10 @@ import org.slf4j.LoggerFactory;
  * Forking can be disabled using the environment variable {@code FLO_DISABLE_FORKING=true}.
  * <p>
  * Forking is disabled by default when running in the debugger, but can be enabled by {@code FLO_FORCE_FORK=true}.
+ * <p>
+ * The basic idea here is to intercept the process fn by overriding {@link EvalContext#invokeProcessFn(TaskId, Fn)},
+ * and executing it in a sub-process JVM. The process fn closure and the result is transported in to and out of the
+ * sub-process using serialization.
  */
 class ForkingContext implements EvalContext {
 
@@ -118,12 +122,15 @@ class ForkingContext implements EvalContext {
     if (delegate == null) {
       throw new UnsupportedOperationException("nested execution not supported");
     }
+    // Wrap the process fn in a lambda that will execute the original process fn closure in a sub-process.
     final Fn<Value<T>> forkingProcessFn = fork(taskId, processFn);
+    // Pass on the wrapped process fn to let the rest of EvalContexts do their thing. The last EvalContext in the chain
+    // will invoke the wrapped lambda, causing the sub-process execution to happen there.
     return delegate.invokeProcessFn(taskId, forkingProcessFn);
   }
 
   private EvalContext delegate() {
-    // In sub-process?
+    // The delegate field will be null if this is in the sub-process
     if (this.delegate == null) {
       return SyncContext.create();
     } else {
