@@ -28,6 +28,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.fail;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.doNothing;
@@ -54,9 +55,9 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.Before;
@@ -90,25 +91,55 @@ public class FloRunnerTest {
   }
 
   @Test
-  public void nonBlockingRunnerDoesNotBlock() {
-    final AtomicBoolean hasHappened = new AtomicBoolean(false);
-    final CountDownLatch latch = new CountDownLatch(1);
+  public void nonBlockingRunnerDoesNotBlock() throws Exception {
+    final Path directory = temporaryFolder.newFolder().toPath();
+    final Path startedFile = directory.resolve("started");
+    final Path latchFile = directory.resolve("latch");
+    final Path happenedFile = directory.resolve("happened");
+
     final Task<Void> task = Task.named("task").ofType(Void.class)
         .process(() -> {
           try {
-            latch.await();
-            hasHappened.set(true);
-          } catch (InterruptedException e) {
+            Files.write(startedFile, new byte[0]);
+            while (true) {
+              if (Files.exists(latchFile)) {
+                Files.write(happenedFile, new byte[0]);
+                return null;
+              }
+              Thread.sleep(100);
+            }
+          } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
           }
-          return null;
         });
 
-    runTask(task);
+    final Result<Void> result = runTask(task);
 
-    assertThat(hasHappened.get(), is(false));
+    // Verify that the task ran at all
+    CompletableFuture.supplyAsync(() -> {
+      while (true) {
+        if (Files.exists(startedFile)) {
+          return true;
+        }
+        try {
+          Thread.sleep(100);
+        } catch (InterruptedException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }).get(30, SECONDS);
 
-    latch.countDown();
+    // Wait a little more to ensure that the task process has some time to write the "happened" file
+    try {
+      result.future().get(2, SECONDS);
+      fail();
+    } catch (TimeoutException ignore) {
+    }
+
+    // If this file doesn't exist now, it's likely that runTask doesn't block
+    assertThat(Files.exists(happenedFile), is(false));
+
+    Files.write(latchFile, new byte[0]);
   }
 
   @Test
