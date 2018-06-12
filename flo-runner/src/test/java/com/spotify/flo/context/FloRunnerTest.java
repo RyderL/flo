@@ -283,13 +283,7 @@ public class FloRunnerTest {
     final Task<TaskId> task = Task.named("task").ofType(TaskId.class)
         .process(() -> Tracing.TASK_ID.get());
 
-    final Result<TaskId> result;
-    try {
-      result = runTask(task);
-    } catch (Throwable e) {
-      log.error("boom!", e);
-      throw new AssertionError();
-    }
+    final Result<TaskId> result = runTask(task);
 
     assertThat(result.value(), is(task.id()));
   }
