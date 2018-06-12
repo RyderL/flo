@@ -22,8 +22,11 @@ package com.spotify.flo.context;
 
 import static com.spotify.flo.context.FloRunner.runTask;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.instanceOf;
+import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.eq;
@@ -46,18 +49,28 @@ import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class FloRunnerTest {
+
+  private static final Logger log = LoggerFactory.getLogger(FloRunnerTest.class);
 
   final Task<String> FOO_TASK = Task.named("task").ofType(String.class)
       .process(() -> "foo");
@@ -126,7 +139,7 @@ public class FloRunnerTest {
 
   @Test
   public void valueIsPassedInFuture() throws Exception {
-    final String result = runTask(FOO_TASK).future().get(30, TimeUnit.SECONDS);
+    final String result = runTask(FOO_TASK).future().get(30, SECONDS);
 
     assertThat(result, is("foo"));
   }
@@ -268,13 +281,74 @@ public class FloRunnerTest {
   @Test
   public void taskIdIsInContext() throws Exception {
     final Task<TaskId> task = Task.named("task").ofType(TaskId.class)
-        .process(() -> {
-          System.err.println(ManagementFactory.getRuntimeMXBean().getInputArguments());
-          return Tracing.TASK_ID.get();
-        });
+        .process(() -> Tracing.TASK_ID.get());
 
-    final Result<TaskId> result = runTask(task);
+    final Result<TaskId> result;
+    try {
+      result = runTask(task);
+    } catch (Throwable e) {
+      log.error("boom!", e);
+      throw new AssertionError();
+    }
 
     assertThat(result.value(), is(task.id()));
+  }
+
+  @Test
+  public void tasksRunInProcesses() throws Exception {
+
+    final Instant today = Instant.now().truncatedTo(ChronoUnit.DAYS);
+    final Instant yesterday = today.minus(1, ChronoUnit.DAYS);
+
+    final Task<String> baz = Task.named("baz", today).ofType(String.class)
+        .process(() -> {
+          final String bazJvm = jvmName();
+          log.info("baz: bazJvm={}, today={}", bazJvm, today);
+          return bazJvm;
+        });
+
+    final Task<String[]> foo = Task.named("foo", baz, yesterday).ofType(String[].class)
+        .input(() -> baz)
+        .processWithContext((ctx, bazJvm) -> {
+          final String fooJvm = jvmName();
+          log.info("foo: ctx={}, fooJvm={}, bazJvm={}, yesterday={}", ctx, fooJvm, bazJvm, yesterday);
+          return ctx.immediateValue(new String[]{bazJvm, fooJvm});
+        });
+
+    final Task<String> quux = Task.named("quux", today).ofType(String.class)
+        .process(() -> {
+          final String quuxJvm = jvmName();
+          log.info("quux: quuxJvm={}, yesterday={}", quuxJvm, yesterday);
+          return quuxJvm;
+        });
+
+    final Task<String[]> bar = Task.named("bar", today, yesterday).ofType(String[].class)
+        .input(() -> foo)
+        .input(() -> quux)
+        .process((bazFooJvms, quuxJvm) -> {
+          final String barJvm = jvmName();
+          log.info("bar: barJvm={}, bazFooJvms={}, quuxJvm={} today={}, yesterday={}",
+              barJvm, bazFooJvms, quuxJvm, today, yesterday);
+          return Stream.concat(
+              Stream.of(barJvm),
+              Stream.concat(
+                  Stream.of(bazFooJvms),
+                  Stream.of(quuxJvm))
+          ).toArray(String[]::new);
+        });
+
+    final List<String> jvms = Arrays.asList(runTask(bar).value());
+
+    final String mainJvm = jvmName();
+
+    log.info("main jvm: {}", mainJvm);
+    log.info("task jvms: {}", jvms);
+    final Set<String> uniqueJvms = new HashSet<>(jvms);
+    assertThat(uniqueJvms.size(), is(4));
+    assertThat(uniqueJvms, not(contains(mainJvm)));
+  }
+
+  private static String jvmName() {
+    return ManagementFactory.getRuntimeMXBean().getName();
   }
 }

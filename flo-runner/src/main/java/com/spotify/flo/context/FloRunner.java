@@ -151,19 +151,19 @@ public final class FloRunner<T> {
   }
 
   private EvalContext createContext() {
-    final EvalContext instrumentedContext = instrument(
-        ForkingEvalContext.composeWith(createRootContext()));
+    final EvalContext instrumentedContext = instrument(createRootContext());
     final EvalContext baseContext = isMode("persist")
         ? persist(instrumentedContext)
         : instrumentedContext;
 
     return
         TracingContext.composeWith(
-            MemoizingContext.composeWith(
-                OverridingContext.composeWith(
-                    LoggingContext.composeWith(
-                        baseContext, logging),
-                    logging)));
+            ForkingEvalContext.composeWith(
+                MemoizingContext.composeWith(
+                    OverridingContext.composeWith(
+                        LoggingContext.composeWith(
+                            baseContext, logging),
+                        logging))));
   }
 
   private EvalContext createRootContext() {

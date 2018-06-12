@@ -22,6 +22,7 @@ package com.spotify.flo.context;
 
 import com.spotify.flo.EvalContext;
 import com.spotify.flo.Fn;
+import com.spotify.flo.Task;
 import com.spotify.flo.TaskId;
 import com.spotify.flo.Tracing;
 import com.spotify.flo.freezer.PersistingContext;
@@ -39,6 +40,9 @@ import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalTime;
+import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.slf4j.Logger;
@@ -51,30 +55,32 @@ import org.slf4j.LoggerFactory;
  * <p>
  * Forking is disabled by default when running in the debugger, but can be enabled by {@code FLO_FORCE_FORK=true}.
  */
-class ForkingEvalContext extends ForwardingEvalContext {
+class ForkingEvalContext implements EvalContext {
 
   private static final Logger log = LoggerFactory.getLogger(ForwardingEvalContext.class);
 
-  // Is the Java Debug Wire Protocol activated?
-  private static boolean IN_DEBUGGER = ManagementFactory.getRuntimeMXBean().
-      getInputArguments().stream().anyMatch(s -> s.contains("-agentlib:jdwp"));
-
-  private static boolean DISABLE_FORKING = Boolean.parseBoolean(System.getenv("FLO_DISABLE_FORKING"));
-
-  private static boolean FORCE_FORK = Boolean.parseBoolean(System.getenv("FLO_FORCE_FORK"));
+  private transient final EvalContext delegate;
 
   private ForkingEvalContext(EvalContext delegate) {
-    super(delegate);
+    this.delegate = Objects.requireNonNull(delegate);
   }
 
   static EvalContext composeWith(EvalContext baseContext) {
-    if (FORCE_FORK) {
+    // Is the Java Debug Wire Protocol activated?
+    final boolean inDebugger = ManagementFactory.getRuntimeMXBean().
+        getInputArguments().stream().anyMatch(s -> s.contains("-agentlib:jdwp"));
+
+    final boolean disableForking = Boolean.parseBoolean(System.getenv("FLO_DISABLE_FORKING"));
+
+    final boolean forceFork = Boolean.parseBoolean(System.getenv("FLO_FORCE_FORK"));
+
+    if (forceFork) {
       log.debug("Forking forcibly enabled (environment variable FLO_FORCE_FORK=true)");
       return new ForkingEvalContext(baseContext);
-    } else if (DISABLE_FORKING) {
+    } else if (disableForking) {
       log.debug("Forking disabled (environment variable FLO_DISABLE_FORKING=true)");
       return baseContext;
-    } else if (IN_DEBUGGER) {
+    } else if (inDebugger) {
       log.debug("In debugger, forking disabled (enable by setting environment variable FLO_FORCE_FORK=true)");
       return baseContext;
     } else {
@@ -83,11 +89,44 @@ class ForkingEvalContext extends ForwardingEvalContext {
   }
 
   @Override
-  public <T> Value<T> value(Fn<T> value) {
-    return super.value(fork(value));
+  public <T> Value<T> evaluateInternal(Task<T> task, EvalContext context) {
+    return delegate().evaluateInternal(task, context);
   }
 
-  private <T> Fn<T> fork(Fn<T> value) {
+  @Override
+  public <T> Value<T> value(Fn<T> value) {
+    return delegate().value(value);
+  }
+
+  @Override
+  public <T> Value<T> immediateValue(T value) {
+    return delegate().immediateValue(value);
+  }
+
+  @Override
+  public <T> Promise<T> promise() {
+    return delegate().promise();
+  }
+
+  @Override
+  public <T> Value<T> invokeProcessFn(TaskId taskId, Fn<Value<T>> processFn) {
+    if (delegate == null) {
+      throw new UnsupportedOperationException("nested execution not supported");
+    }
+    final Fn<Value<T>> forkingProcessFn = fork(processFn);
+    return delegate.invokeProcessFn(taskId, forkingProcessFn);
+  }
+
+  private EvalContext delegate() {
+    // In sub-process?
+    if (this.delegate == null) {
+      return SyncContext.create();
+    } else {
+      return delegate;
+    }
+  }
+
+  private <T> Fn<Value<T>> fork(Fn<Value<T>> value) {
     return () -> {
 
       final ExecutorService executor = Executors.newCachedThreadPool();
@@ -172,7 +211,7 @@ class ForkingEvalContext extends ForwardingEvalContext {
 
         if (Files.exists(errorFile)) {
           // Failed
-          log.debug("subprocess exited with error file");
+          log.debug("Subprocess exited with error file");
           final Throwable error;
           try {
             error = PersistingContext.deserialize(errorFile);
@@ -186,14 +225,14 @@ class ForkingEvalContext extends ForwardingEvalContext {
           }
         } else {
           // Success
-          log.debug("subprocess exited with result file");
+          log.debug("Subprocess exited with result file");
           final T result;
           try {
             result = PersistingContext.deserialize(resultFile);
           } catch (Exception e) {
             throw new RuntimeException("Failed to deserialize result", e);
           }
-          return result;
+          return immediateValue(result);
         }
       } finally {
         executor.shutdown();
@@ -308,7 +347,7 @@ class ForkingEvalContext extends ForwardingEvalContext {
 
     private static void run(Path closureFile, Path resultFile, Path errorFile) {
       err("deserializing closure");
-      final Fn<?> fn;
+      final Fn<Value<?>> fn;
       try {
         fn = PersistingContext.deserialize(closureFile);
       } catch (Exception e) {
@@ -322,16 +361,32 @@ class ForkingEvalContext extends ForwardingEvalContext {
       }
 
       err("executing closure");
-      Object result = null;
+      Value<?> value = null;
       Throwable error = null;
       try {
-        result = fn.get();
+        value = fn.get();
       } catch (Exception e) {
         error = e;
       }
 
+      err("getting result");
+      Object result = null;
+      if (value != null) {
+        CompletableFuture<Object> f = new CompletableFuture<>();
+        value.consume(f::complete);
+        value.onFail(f::completeExceptionally);
+        try {
+          result = f.get();
+        } catch (InterruptedException e) {
+          error = e;
+        } catch (ExecutionException e) {
+          error = e.getCause();
+        }
+      }
+
       if (error != null) {
         err("serializing error");
+        error.printStackTrace();
         try {
           PersistingContext.serialize(error, errorFile);
         } catch (Exception e) {
