@@ -61,7 +61,7 @@ import org.slf4j.LoggerFactory;
  * and executing it in a sub-process JVM. The process fn closure and the result is transported in to and out of the
  * sub-process using serialization.
  */
-class ForkingContext implements EvalContext {
+public class ForkingContext implements EvalContext {
 
   private static final Logger log = LoggerFactory.getLogger(ForkingContext.class);
 
