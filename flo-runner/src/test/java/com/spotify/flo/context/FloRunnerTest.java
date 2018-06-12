@@ -263,21 +263,6 @@ public class FloRunnerTest {
     runTask(FOO_TASK);
   }
 
-  @Ignore("does not make sense in subprocess?")
-  @Test
-  public void contextIsPropagated() throws Exception {
-    final Context.Key<String> fooKey = Context.key("foo");
-    final String fooValue = "foobar";
-
-    final Task<String> task = Task.named("task").ofType(String.class)
-        .process(fooKey::get);
-
-    final Result<String> result = Context.current().withValue(fooKey, fooValue)
-        .call(() -> runTask(task));
-
-    assertThat(result.value(), is(fooValue));
-  }
-
   @Test
   public void taskIdIsInContext() throws Exception {
     final Task<TaskId> task = Task.named("task").ofType(TaskId.class)
