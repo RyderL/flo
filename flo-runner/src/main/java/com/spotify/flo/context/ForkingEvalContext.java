@@ -59,7 +59,7 @@ class ForkingEvalContext extends ForwardingEvalContext {
   private static boolean IN_DEBUGGER = ManagementFactory.getRuntimeMXBean().
       getInputArguments().stream().anyMatch(s -> s.contains("-agentlib:jdwp"));
 
-  private static boolean FLO_DISABLE_FORKING = Boolean.parseBoolean(System.getenv("FLO_DISABLE_FORKING"));
+  private static boolean DISABLE_FORKING = Boolean.parseBoolean(System.getenv("FLO_DISABLE_FORKING"));
 
   private static boolean FORCE_FORK = Boolean.parseBoolean(System.getenv("FLO_FORCE_FORK"));
 
@@ -71,7 +71,7 @@ class ForkingEvalContext extends ForwardingEvalContext {
     if (FORCE_FORK) {
       log.debug("Forking forcibly enabled (environment variable FORCE_FORK=true)");
       return new ForkingEvalContext(baseContext);
-    } else if (FLO_DISABLE_FORKING) {
+    } else if (DISABLE_FORKING) {
       log.debug("Forking disabled (environment variable FLO_DISABLE_FORKING=true)");
       return baseContext;
     } else if (IN_DEBUGGER) {
