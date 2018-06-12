@@ -97,6 +97,9 @@ class ForkingContext implements EvalContext {
 
   @Override
   public <T> Value<T> value(Fn<T> value) {
+    // Note: This method is called from within the process fn lambda, and thus this ForkingContext instance will be
+    // captured in the closure. This method will then be called in the task sub-process. As the delegate field is
+    // transient it will be null and delegate() will return a SyncContext that will immediately call the value fn.
     return delegate().value(value);
   }
 
