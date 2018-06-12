@@ -55,13 +55,13 @@ import org.slf4j.LoggerFactory;
  * <p>
  * Forking is disabled by default when running in the debugger, but can be enabled by {@code FLO_FORCE_FORK=true}.
  */
-class ForkingEvalContext implements EvalContext {
+class ForkingContext implements EvalContext {
 
   private static final Logger log = LoggerFactory.getLogger(ForwardingEvalContext.class);
 
   private transient final EvalContext delegate;
 
-  private ForkingEvalContext(EvalContext delegate) {
+  private ForkingContext(EvalContext delegate) {
     this.delegate = Objects.requireNonNull(delegate);
   }
 
@@ -76,7 +76,7 @@ class ForkingEvalContext implements EvalContext {
 
     if (forceFork) {
       log.debug("Forking forcibly enabled (environment variable FLO_FORCE_FORK=true)");
-      return new ForkingEvalContext(baseContext);
+      return new ForkingContext(baseContext);
     } else if (disableForking) {
       log.debug("Forking disabled (environment variable FLO_DISABLE_FORKING=true)");
       return baseContext;
@@ -84,7 +84,7 @@ class ForkingEvalContext implements EvalContext {
       log.debug("In debugger, forking disabled (enable by setting environment variable FLO_FORCE_FORK=true)");
       return baseContext;
     } else {
-      return new ForkingEvalContext(baseContext);
+      return new ForkingContext(baseContext);
     }
   }
 
@@ -434,7 +434,7 @@ class ForkingEvalContext implements EvalContext {
     }
 
     private static void errPrefix() {
-      System.err.print(LocalTime.now() + " [" + NAME + "] " + ForkingEvalContext.class.getName() + ": ");
+      System.err.print(LocalTime.now() + " [" + NAME + "] " + ForkingContext.class.getName() + ": ");
     }
   }
 }

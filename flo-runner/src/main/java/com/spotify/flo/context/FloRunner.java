@@ -158,7 +158,7 @@ public final class FloRunner<T> {
 
     return
         TracingContext.composeWith(
-            ForkingEvalContext.composeWith(
+            ForkingContext.composeWith(
                 MemoizingContext.composeWith(
                     OverridingContext.composeWith(
                         LoggingContext.composeWith(
