@@ -69,13 +69,13 @@ class ForkingEvalContext extends ForwardingEvalContext {
 
   static EvalContext composeWith(EvalContext baseContext) {
     if (FORCE_FORK) {
-      log.debug("Forking forcibly enabled (environment variable FORCE_FORK=true)");
+      log.debug("Forking forcibly enabled (environment variable FLO_FORCE_FORK=true)");
       return new ForkingEvalContext(baseContext);
     } else if (DISABLE_FORKING) {
       log.debug("Forking disabled (environment variable FLO_DISABLE_FORKING=true)");
       return baseContext;
     } else if (IN_DEBUGGER) {
-      log.debug("In debugger, forking disabled (enable by setting environment variable FORCE_FORK=true)");
+      log.debug("In debugger, forking disabled (enable by setting environment variable FLO_FORCE_FORK=true)");
       return baseContext;
     } else {
       return new ForkingEvalContext(baseContext);
