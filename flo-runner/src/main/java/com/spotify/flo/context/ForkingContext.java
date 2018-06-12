@@ -118,7 +118,7 @@ class ForkingContext implements EvalContext {
     if (delegate == null) {
       throw new UnsupportedOperationException("nested execution not supported");
     }
-    final Fn<Value<T>> forkingProcessFn = fork(processFn);
+    final Fn<Value<T>> forkingProcessFn = fork(taskId, processFn);
     return delegate.invokeProcessFn(taskId, forkingProcessFn);
   }
 
@@ -131,7 +131,7 @@ class ForkingContext implements EvalContext {
     }
   }
 
-  private <T> Fn<Value<T>> fork(Fn<Value<T>> value) {
+  private <T> Fn<Value<T>> fork(TaskId taskId, Fn<Value<T>> value) {
     return () -> {
 
       final ExecutorService executor = Executors.newCachedThreadPool();
@@ -180,10 +180,7 @@ class ForkingContext implements EvalContext {
         processBuilder.command().add(errorFile.toString());
 
         // Propagate TASK_ID to child process
-        final TaskId taskId = Tracing.TASK_ID.get();
-        if (taskId != null) {
-          processBuilder.environment().put("FLO_TASK_ID", taskId.toString());
-        }
+        processBuilder.environment().put("FLO_TASK_ID", taskId.toString());
 
         log.debug("Starting subprocess: environment={}, command={}, directory={}",
             processBuilder.environment(), processBuilder.command(), processBuilder.directory());
