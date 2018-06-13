@@ -42,6 +42,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -76,20 +77,23 @@ class ForkingContext implements EvalContext {
     final boolean inDebugger = ManagementFactory.getRuntimeMXBean().
         getInputArguments().stream().anyMatch(s -> s.contains("-agentlib:jdwp"));
 
-    final boolean disableForking = Boolean.parseBoolean(System.getenv("FLO_DISABLE_FORKING"));
+    final Optional<Boolean> forking = Optional.ofNullable(System.getenv("FLO_FORKING")).map(Boolean::parseBoolean);
 
-    final boolean forceFork = Boolean.parseBoolean(System.getenv("FLO_FORCE_FORK"));
-
-    if (forceFork) {
-      log.debug("Forking forcibly enabled (environment variable FLO_FORCE_FORK=true)");
-      return new ForkingContext(baseContext);
-    } else if (disableForking) {
-      log.debug("Forking disabled (environment variable FLO_DISABLE_FORKING=true)");
-      return baseContext;
+    if (forking.isPresent()) {
+      if (forking.get()) {
+        log.debug("Forking enabled (environment variable FLO_FORKING=true)");
+        return new ForkingContext(baseContext);
+      } else {
+        log.debug("Forking disabled (environment variable FLO_FORKING=true)");
+        return baseContext;
+      }
     } else if (inDebugger) {
-      log.debug("In debugger, forking disabled (enable by setting environment variable FLO_FORCE_FORK=true)");
+      log.debug("Debugger detected, forking disabled by default "
+          + "(enable by setting environment variable FLO_FORKING=true)");
       return baseContext;
     } else {
+      log.debug("Debugger not detected, forking enabled by default "
+          + "(disable by setting environment variable FLO_FORKING=false)");
       return new ForkingContext(baseContext);
     }
   }
