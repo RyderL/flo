@@ -62,7 +62,7 @@ import org.slf4j.LoggerFactory;
  */
 class ForkingContext implements EvalContext {
 
-  private static final Logger log = LoggerFactory.getLogger(ForwardingEvalContext.class);
+  private static final Logger log = LoggerFactory.getLogger(ForkingContext.class);
 
   // This is marked transient so as to avoid serializing the whole stack of EvalContexts
   private transient final EvalContext delegate;
